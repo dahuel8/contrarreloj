@@ -216,6 +216,7 @@ body{display:flex;flex-direction:column;align-items:center;min-height:100vh;min-
 </head>
 <body>
 <div class="bg-glow"></div>
+<canvas id="balloonCanvas" style="position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999"></canvas>
 <div class="alarm-overlay" id="alarmOverlay"></div>
 <div class="alarm-banner" id="alarmBanner">🚨 ¡Algún botón tocó el BOTÓN! 🚨</div>
 
@@ -906,6 +907,89 @@ function renderHistory() {
     </div>`;
   }).join('');
 }
+
+// ── BALLOON ANIMATION ───────────────────────────────
+(function() {
+  const canvas = document.getElementById('balloonCanvas');
+  const ctx = canvas.getContext('2d');
+  const COLORS = ['#e05a2b','#4a90d9','#4caf7d','#9b6dd6','#e06ea0','#f0952a','#5bc8d8','#e8b84b'];
+  const DURATION = 5000;
+  let balloons = [], startTime = null;
+
+  function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function makeBalloon() {
+    const r = 20 + Math.random() * 18;
+    return {
+      x: 40 + Math.random() * (canvas.width - 80),
+      y: canvas.height + r + Math.random() * canvas.height * 0.5,
+      r,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      speed: 0.8 + Math.random() * 0.9,   // slower, consistent
+      stringLen: 30 + Math.random() * 16,
+    };
+  }
+
+  function drawBalloon(b) {
+    ctx.save();
+
+    // string — straight down
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y + b.r * 0.95);
+    ctx.lineTo(b.x, b.y + b.r * 0.95 + b.stringLen);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // body
+    ctx.beginPath();
+    ctx.ellipse(b.x, b.y, b.r * 0.78, b.r, 0, 0, Math.PI * 2);
+    ctx.fillStyle = b.color;
+    ctx.fill();
+
+    // shine
+    ctx.beginPath();
+    ctx.ellipse(b.x - b.r * 0.25, b.y - b.r * 0.28, b.r * 0.2, b.r * 0.13, -0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.fill();
+
+    // knot
+    ctx.beginPath();
+    ctx.arc(b.x, b.y + b.r * 0.95, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = b.color;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function animate(ts) {
+    if (!startTime) startTime = ts;
+    const elapsed = ts - startTime;
+    const progress = Math.min(elapsed / DURATION, 1);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // smooth fade out last 25%
+    const alpha = progress > 0.75 ? 1 - (progress - 0.75) / 0.25 : 1;
+    ctx.globalAlpha = alpha;
+
+    balloons.forEach(b => { b.y -= b.speed; drawBalloon(b); });
+
+    ctx.globalAlpha = 1;
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.style.display = 'none';
+    }
+  }
+
+  for (let i = 0; i < 26; i++) balloons.push(makeBalloon());
+  setTimeout(() => requestAnimationFrame(animate), 150);
+})();
 
 // ── INIT ────────────────────────────────────────────
 showScreen('homeScreen');
