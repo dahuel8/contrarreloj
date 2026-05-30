@@ -60,7 +60,11 @@ wss.on('connection', ws => {
       const code = genCode();
       const state = { screen: 'lobby', teams: msg.teams, currentTeamIdx: 0,
                       cardIndex: 0, deck: msg.deck, currentCardColor: 'default',
-                      teamScores: msg.teams.map(() => 0), roundScores: [] };
+                      teamScores: msg.teams.map(() => 0), roundScores: [],
+                      roundsPlayed: 0,
+                      powersUnlocked: false,           // are powers currently usable
+                      powersUsed: [],                  // which power types already spent in this window
+                      roundsSinceAllUsed: null };      // counts rounds after the 4 were all spent
       const room = { code, state, players: new Map() };
       rooms.set(code, room);
       myRoom = room;
@@ -120,9 +124,29 @@ wss.on('connection', ws => {
       if (action === 'finish_round') {
         s.roundScores.push(payload.score);
         s.teamScores[s.currentTeamIdx] = (s.teamScores[s.currentTeamIdx] || 0) + payload.score;
+        s.roundsPlayed = (s.roundsPlayed || 0) + 1;
         s.currentTeamIdx = (s.currentTeamIdx + 1) % s.teams.length;
         s.currentCardColor = 'default';
         s.cardIndex++;
+
+        const windowSize = s.teams.length * 2; // 2 full passes of all groups
+
+        // FIRST unlock: after the first 2 full passes
+        if (!s.powersUnlocked && s.powersUsed.length === 0 && s.roundsSinceAllUsed === null
+            && s.roundsPlayed >= windowSize) {
+          s.powersUnlocked = true;
+        }
+
+        // RE-unlock: if all 4 were used, count rounds; after 2 more passes, unlock again
+        if (s.roundsSinceAllUsed !== null) {
+          s.roundsSinceAllUsed++;
+          if (s.roundsSinceAllUsed >= windowSize) {
+            s.powersUnlocked = true;
+            s.powersUsed = [];
+            s.roundsSinceAllUsed = null;
+          }
+        }
+
         if (s.cardIndex >= s.deck.length) { s.screen = 'result'; }
         else { s.screen = 'handoff'; }
       }
@@ -137,16 +161,27 @@ wss.on('connection', ws => {
         s.screen = 'card_choice';
       }
       if (action === 'emergency') {
-        // mark emergency active, relay to all — host will see alarm
+        // mark emergency active, relay to all
         s.emergencyActive = true;
       }
       if (action === 'clear_emergency') {
         s.emergencyActive = false;
       }
+      if (action === 'use_power') {
+        if (!s.powersUnlocked || s.powersUsed.includes(payload.power)) {
+          return; // ignore
+        }
+        s.powersUsed.push(payload.power);
+        if (s.powersUsed.length >= 5) {
+          s.powersUnlocked = false;
+          s.roundsSinceAllUsed = 0;
+        }
+      }
       if (action === 'new_game') {
         s.cardIndex = 0; s.currentTeamIdx = 0;
         s.teamScores = s.teams.map(() => 0);
         s.roundScores = []; s.currentCardColor = 'default';
+        s.roundsPlayed = 0; s.powersUnlocked = false; s.powersUsed = []; s.roundsSinceAllUsed = null;
         s.deck = payload.deck;
         s.screen = 'card_choice';
       }
