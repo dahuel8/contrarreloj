@@ -80,10 +80,19 @@ wss.on('connection', ws => {
       const room = rooms.get(msg.code?.toUpperCase());
       if (!room) { ws.send(JSON.stringify({ type: 'error', msg: 'Sala no encontrada' })); return; }
       myRoom = room;
-      // assign team sequentially: count non-host players already in room
-      const nonHostCount = [...room.players.values()].filter(p => !p.isHost).length;
-      const teamCount = room.state.teams ? room.state.teams.length : 1;
-      const assignedTeamIdx = nonHostCount % teamCount;
+
+      let assignedTeamIdx;
+      if (msg.rejoin) {
+        // Rejoining after disconnect: find previous player by name and restore their team
+        const prev = [...room.players.values()].find(p => p.name === msg.playerName && !p.isHost);
+        assignedTeamIdx = prev ? prev.teamIdx : 0;
+      } else {
+        // Fresh join: assign sequentially
+        const nonHostCount = [...room.players.values()].filter(p => !p.isHost).length;
+        const teamCount = room.state.teams ? room.state.teams.length : 1;
+        assignedTeamIdx = nonHostCount % teamCount;
+      }
+
       room.players.set(ws, { name: msg.playerName || 'Jugador', teamIdx: assignedTeamIdx, isHost: false });
       // send joined with assigned team index AND full player list
       const playerList = [...room.players.values()].map(p => ({
