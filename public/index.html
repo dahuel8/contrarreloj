@@ -371,8 +371,7 @@ body{display:flex;flex-direction:column;align-items:center;min-height:100vh;min-
       <button class="power-btn" id="pw-shuffle" onclick="usePower('shuffle')"><span style="font-size:26px">🔀</span><span class="power-label">Mezcla</span></button>
       <button class="power-btn" id="pw-blur" onclick="usePower('blur')"><span style="font-size:26px">🌫️</span><span class="power-label">Borroso</span></button>
       <button class="power-btn" id="pw-shake" onclick="usePower('shake')"><span style="font-size:26px">📳</span><span class="power-label">Temblor</span></button>
-      <button class="power-btn" id="pw-fog" onclick="usePower('fog')"><span style="font-size:26px">🙈</span><span class="power-label">Censura</span></button>
-      <button class="power-btn" id="pw-tito" onclick="usePower('tito')" style="grid-column:span 2"><span style="font-size:26px">🎴</span><span class="power-label">San Tito</span></button>
+      <button class="power-btn" id="pw-tito" onclick="usePower('tito')"><span style="font-size:26px">🎴</span><span class="power-label">San Tito</span></button>
     </div>
     <div id="powerLockHint" style="display:none;font-size:11px;color:#e8b84b;margin-top:8px;text-align:center">⏳ Esperá que elija el color de tarjeta...</div>
   </div>
@@ -676,20 +675,22 @@ function updatePowersUI(s, locked) {
   if (s.powersUnlocked && iAmHolder) {
     panel.style.display = 'block';
     notify.style.display = 'none';
-    ['shuffle','blur','shake','fog','tito'].forEach(p => {
+    const turnUsed = s.powerUsedThisTurn || false;
+    ['shuffle','blur','shake','tito'].forEach(p => {
       const btn = document.getElementById('pw-' + p);
       if (!btn) return;
-      btn.classList.toggle('used', used.includes(p));
-      // during card_choice: disable all non-used buttons with a "waiting" style
-      if (locked && !used.includes(p)) {
+      const alreadySpent = used.includes(p);
+      btn.classList.toggle('used', alreadySpent);
+      // locked-wait: during card_choice OR after one power used this turn
+      if ((locked || turnUsed) && !alreadySpent) {
         btn.classList.add('locked-wait');
       } else {
         btn.classList.remove('locked-wait');
       }
     });
-    // show hint during card_choice
     const hint = document.getElementById('powerLockHint');
-    if (hint) hint.style.display = locked ? 'block' : 'none';
+    if (hint) hint.style.display = (locked || turnUsed) ? 'block' : 'none';
+    if (hint && turnUsed) hint.textContent = '✅ Ya se usó un poder en este turno';
   } else if (s.powersUnlocked && !iAmHolder) {
     panel.style.display = 'none';
     notify.style.display = 'block';
@@ -716,7 +717,7 @@ function usePower(power) {
   sendAction('use_power', { power, byName: myTeam.name, byColor: myTeam.color });
 }
 
-const POWER_NAMES = { shuffle:'MEZCLA 🔀', blur:'BORROSO 🌫️', shake:'TEMBLOR 📳', fog:'CENSURA 🙈', tito:'¡SAN TITO! 🎴' };
+const POWER_NAMES = { shuffle:'MEZCLA 🔀', blur:'BORROSO 🌫️', shake:'TEMBLOR 📳', tito:'¡SAN TITO! 🎴' };
 const POWER_DURATION = 6000;
 
 function onPowerUsed(s, payload) {
