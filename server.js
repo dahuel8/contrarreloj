@@ -62,9 +62,10 @@ wss.on('connection', ws => {
                       cardIndex: 0, deck: msg.deck, currentCardColor: 'default',
                       teamScores: msg.teams.map(() => 0), roundScores: [],
                       roundsPlayed: 0,
-                      powersUnlocked: false,           // are powers currently usable
-                      powersUsed: [],                  // which power types already spent in this window
-                      roundsSinceAllUsed: null };      // counts rounds after the 4 were all spent
+                      powersUnlocked: false,
+                      powersUsed: [],
+                      powerUsedThisTurn: false,
+                      roundsSinceAllUsed: null };
       const room = { code, state, players: new Map() };
       rooms.set(code, room);
       myRoom = room;
@@ -118,6 +119,7 @@ wss.on('connection', ws => {
         s.roundScores.push(payload.score);
         s.teamScores[s.currentTeamIdx] = (s.teamScores[s.currentTeamIdx] || 0) + payload.score;
         s.cardIndex++;
+        s.powerUsedThisTurn = false;
         if (s.cardIndex >= s.deck.length) { s.screen = 'result'; }
         else { s.screen = 'playing'; }
       }
@@ -125,6 +127,7 @@ wss.on('connection', ws => {
         s.roundScores.push(payload.score);
         s.teamScores[s.currentTeamIdx] = (s.teamScores[s.currentTeamIdx] || 0) + payload.score;
         s.roundsPlayed = (s.roundsPlayed || 0) + 1;
+        s.powerUsedThisTurn = false;
         s.currentTeamIdx = (s.currentTeamIdx + 1) % s.teams.length;
         s.currentCardColor = 'default';
         s.cardIndex++;
@@ -168,11 +171,12 @@ wss.on('connection', ws => {
         s.emergencyActive = false;
       }
       if (action === 'use_power') {
-        if (!s.powersUnlocked || s.powersUsed.includes(payload.power)) {
-          return; // ignore
+        if (!s.powersUnlocked || s.powersUsed.includes(payload.power) || s.powerUsedThisTurn) {
+          return; // ignore — already used one this turn or this power already spent
         }
+        s.powerUsedThisTurn = true;
         s.powersUsed.push(payload.power);
-        if (s.powersUsed.length >= 5) {
+        if (s.powersUsed.length >= 4) {
           s.powersUnlocked = false;
           s.roundsSinceAllUsed = 0;
         }
@@ -181,7 +185,7 @@ wss.on('connection', ws => {
         s.cardIndex = 0; s.currentTeamIdx = 0;
         s.teamScores = s.teams.map(() => 0);
         s.roundScores = []; s.currentCardColor = 'default';
-        s.roundsPlayed = 0; s.powersUnlocked = false; s.powersUsed = []; s.roundsSinceAllUsed = null;
+        s.roundsPlayed = 0; s.powersUnlocked = false; s.powersUsed = []; s.powerUsedThisTurn = false; s.roundsSinceAllUsed = null;
         s.deck = payload.deck;
         s.screen = 'card_choice';
       }
