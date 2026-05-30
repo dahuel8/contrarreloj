@@ -505,6 +505,40 @@ function setConnStatus(ok) {
 }
 function send(obj) { if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
 
+// ── RECONNECT ON VISIBILITY CHANGE ──────────────────
+// When iOS/Android brings the app back from background, WebSocket is dead.
+// Detect it and reconnect + rejoin the room automatically.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    // Check if WS is dead
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      clearTimeout(reconnectTimer);
+      connect();
+      // After reconnect, if we were in a room, rejoin automatically
+      if (roomCode) {
+        // Wait for connection then rejoin
+        const waitAndRejoin = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            clearInterval(waitAndRejoin);
+            if (isHost) {
+              // Host can't rejoin a room automatically — show a message
+              setConnStatus(true);
+            } else {
+              // Player rejoins with same code and gets current state back
+              send({
+                type: 'join_room',
+                code: roomCode,
+                playerName: myPlayerName || 'Jugador',
+                rejoin: true
+              });
+            }
+          }
+        }, 200);
+      }
+    }
+  }
+});
+
 // ── SERVER MESSAGES ──────────────────────────────
 function handleMsg(msg) {
   if (msg.type === 'pong') return;
