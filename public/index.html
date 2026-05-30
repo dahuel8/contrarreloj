@@ -489,15 +489,8 @@ const WS_URL = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '/\/' + locat
 let ws, reconnectTimer;
 
 function connect() {
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => {
-    setConnStatus(true);
-    clearTimeout(reconnectTimer);
-    setInterval(() => { if(ws.readyState===1) ws.send(JSON.stringify({type:'ping'})); }, 25000);
-  };
-  ws.onmessage = e => handleMsg(JSON.parse(e.data));
-  ws.onclose = () => { setConnStatus(false); reconnectTimer = setTimeout(connect, 3000); };
-  ws.onerror = () => ws.close();
+  // Use the robust reconnect system
+  reconnectAndRejoin();
 }
 function setConnStatus(ok) {
   document.getElementById('connDot').className = 'conn-dot ' + (ok ? 'connected' : 'error');
@@ -505,35 +498,87 @@ function setConnStatus(ok) {
 }
 function send(obj) { if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
 
-// ── RECONNECT ON VISIBILITY CHANGE ──────────────────
-// When iOS/Android brings the app back from background, WebSocket is dead.
-// Detect it and reconnect + rejoin the room automatically.
+// ── RECONNECT LOGIC ──────────────────────────────────
+// iOS Safari kills WebSockets in background. We detect dead connections
+// via ping timeout and reconnect + rejoin automatically.
+let pingInterval = null;
+let pongTimeout = null;
+let lastPongTime = Date.now();
+
+function startPing() {
+  clearInterval(pingInterval);
+  pingInterval = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      handleDisconnect();
+      return;
+    }
+    // send ping, expect pong within 5 seconds
+    try { ws.send(JSON.stringify({ type: 'ping' })); } catch(e) { handleDisconnect(); return; }
+    clearTimeout(pongTimeout);
+    pongTimeout = setTimeout(() => {
+      // no pong received — connection is zombie
+      handleDisconnect();
+    }, 5000);
+  }, 8000); // ping every 8 seconds
+}
+
+function handleDisconnect() {
+  clearInterval(pingInterval);
+  clearTimeout(pongTimeout);
+  setConnStatus(false);
+  if (ws) { try { ws.close(); } catch(e) {} }
+  setTimeout(() => reconnectAndRejoin(), 1000);
+}
+
+function reconnectAndRejoin() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    setConnStatus(true);
+    startPing();
+    // if we were in a room, rejoin immediately
+    if (roomCode) {
+      if (!isHost) {
+        ws.send(JSON.stringify({
+          type: 'join_room',
+          code: roomCode,
+          playerName: myPlayerName || 'Jugador',
+          rejoin: true
+        }));
+      }
+    }
+  };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'pong') {
+      clearTimeout(pongTimeout);
+      lastPongTime = Date.now();
+      return;
+    }
+    handleMsg(msg);
+  };
+  ws.onclose = () => {
+    setConnStatus(false);
+    clearInterval(pingInterval);
+    clearTimeout(pongTimeout);
+    setTimeout(() => reconnectAndRejoin(), 3000);
+  };
+  ws.onerror = () => { try { ws.close(); } catch(e) {} };
+}
+
+// Also reconnect when app comes back from background
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    // Check if WS is dead
-    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-      clearTimeout(reconnectTimer);
-      connect();
-      // After reconnect, if we were in a room, rejoin automatically
-      if (roomCode) {
-        // Wait for connection then rejoin
-        const waitAndRejoin = setInterval(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            clearInterval(waitAndRejoin);
-            if (isHost) {
-              // Host can't rejoin a room automatically — show a message
-              setConnStatus(true);
-            } else {
-              // Player rejoins with same code and gets current state back
-              send({
-                type: 'join_room',
-                code: roomCode,
-                playerName: myPlayerName || 'Jugador',
-                rejoin: true
-              });
-            }
-          }
-        }, 200);
+    // Force check: if ws is dead or zombie, reconnect
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      handleDisconnect();
+    } else {
+      // Send a ping immediately to verify connection is truly alive
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }));
+        clearTimeout(pongTimeout);
+        pongTimeout = setTimeout(() => handleDisconnect(), 3000);
+      } catch(e) {
+        handleDisconnect();
       }
     }
   }
